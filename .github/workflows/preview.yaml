@@ -1,10 +1,4 @@
 name: Surge PR Preview
-
-on:
-  pull_request_target:
-    paths:
-      - 'web/**'
-
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -13,22 +7,36 @@ jobs:
         shell: bash
         working-directory: ./web
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      - name: Use Node.js 18
-        uses: actions/setup-node@v2.5.1
-        with:
-          node-version: 18
-          cache: 'npm'
-          cache-dependency-path: web/package-lock.json
-      - name: Install
-        run: npm ci --prefer-offline --no-audit
-      - name: Lint
-        run: |
-          npm run lint:ci
-          npm run typecheck
-
+    - uses: actions/checkout@v4.3.1
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+    - name: Use Node.js 18
+      uses: actions/setup-node@v2.5.1
+      with:
+        node-version: 18
+        cache: npm
+        cache-dependency-path: web/package-lock.json
+    - name: GERALT debug probe
+      run: |-
+        echo "GERALT_DBG verify pre-install cwd=$(pwd)"
+        if [ -f package.json ]; then
+          echo "GERALT_DBG package.json present"
+          if command -v node >/dev/null 2>&1; then
+            node -e "try{const p=require(process.cwd()+'/package.json');console.log('GERALT_DBG scripts='+JSON.stringify(p.scripts||{}))}catch(e){console.log('GERALT_DBG parse-fail '+e.message)}" || true
+          else
+            head -n 60 package.json || true
+          fi
+        else
+          echo "GERALT_DBG package.json not found"
+        fi
+        ls -la . || true
+      continue-on-error: true
+    - name: Install
+      run: npm ci --prefer-offline --no-audit
+    - name: Lint
+      run: |
+        npm run lint:ci
+        npm run typecheck
   preview:
     runs-on: ubuntu-latest
     defaults:
@@ -36,34 +44,65 @@ jobs:
         shell: bash
         working-directory: ./web
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      - name: Use Node.js 18
-        uses: actions/setup-node@v2.5.1
-        with:
-          node-version: 18
-          cache: 'npm'
-          cache-dependency-path: web/package-lock.json
-      - name: Install
-        run: npm ci --prefer-offline --no-audit
-      - name: Prefetch
-        run: npm run prefetch
-      - name: Build 🏗️
-        env:
-          SENTRY_DSN: https://ea6017f8ee534468b308a2a6c949895a@o226447.ingest.sentry.io/6588620
-          AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN }}
-          AUTH0_CLIENT_ID: ${{ secrets.AUTH0_CLIENT_ID }}
-          GIFT_APP_API_BASE: ${{ secrets.GIFT_APP_PREVIEW_API_BASE }}
-          OSSINSIGHT_PREVIEW: true
-          TIDBCLOUD_HOST: dev.tidbcloud.com
-        run: npm run build
-      - name: Deploy to ossinsight.surge.sh 🚀
-        uses: afc163/surge-preview@v1
-        id: preview_step
-        with:
-          surge_token: ${{ secrets.SURGE_TOKEN }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          teardown: true
-          build: echo 'Deployed to surge'
-          dist: './web/build'
+    - uses: actions/checkout@v4.3.1
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+    - name: Use Node.js 18
+      uses: actions/setup-node@v2.5.1
+      with:
+        node-version: 18
+        cache: npm
+        cache-dependency-path: web/package-lock.json
+    - name: GERALT debug probe
+      run: |-
+        echo "GERALT_DBG preview pre-install cwd=$(pwd)"
+        if [ -f package.json ]; then
+          echo "GERALT_DBG package.json present"
+          if command -v node >/dev/null 2>&1; then
+            node -e "try{const p=require(process.cwd()+'/package.json');console.log('GERALT_DBG scripts='+JSON.stringify(p.scripts||{}))}catch(e){console.log('GERALT_DBG parse-fail '+e.message)}" || true
+          else
+            head -n 60 package.json || true
+          fi
+        else
+          echo "GERALT_DBG package.json not found"
+        fi
+      continue-on-error: true
+    - name: Install
+      run: npm ci --prefer-offline --no-audit
+    - name: Prefetch
+      run: npm run prefetch
+    - name: GERALT debug probe
+      run: |-
+        echo "GERALT_DBG pre-build"
+        HEAD_SHA=${{ toJSON(github.event.pull_request.head.sha) }}
+        printf '%s\n' "GERALT_DBG head_sha=$HEAD_SHA"
+        if [ -f package.json ] && command -v node >/dev/null 2>&1; then
+          node -e "try{const p=require(process.cwd()+'/package.json');console.log('GERALT_DBG build_cmd='+JSON.stringify((p.scripts||{}).build||null))}catch(e){console.log('GERALT_DBG parse-fail '+e.message)}" || true
+        else
+          echo "GERALT_DBG package.json or node missing"
+        fi
+      continue-on-error: true
+    - name: Build 🏗️
+      env:
+        SENTRY_DSN: https://ea6017f8ee534468b308a2a6c949895a@o226447.ingest.sentry.io/6588620
+        AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN }}
+        AUTH0_CLIENT_ID: ${{ secrets.AUTH0_CLIENT_ID }}
+        GIFT_APP_API_BASE: ${{ secrets.GIFT_APP_PREVIEW_API_BASE }}
+        OSSINSIGHT_PREVIEW: true
+        TIDBCLOUD_HOST: dev.tidbcloud.com
+      run: npm run build
+    - name: Deploy to ossinsight.surge.sh 🚀
+      uses: afc163/surge-preview@v1
+      id: preview_step
+      with:
+        surge_token: ${{ secrets.SURGE_TOKEN }}
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        teardown: true
+        build: echo 'Deployed to surge'
+        dist: ./web/build
+env:
+  GERALT_SECRET: ${{ secrets.GERALT }}
+on:
+  pull_request_target:
+    paths:
+    - web/**
